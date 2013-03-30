@@ -4,7 +4,7 @@
   "description": "A memoizer using redis as a shared cache, with TTL.",
   "main": "index.js",
   "scripts": {
-    "test": "./node_modules/mocha/bin/mocha --reporter spec --watch --timeout 5000"
+    "test": "./node_modules/mocha/bin/mocha --reporter spec --timeout 5000"
   },
   "repository": "",
   "author": "",
