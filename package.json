@@ -1,0 +1,19 @@
+{
+  "name": "redis-memoizer",
+  "version": "0.0.1",
+  "description": "A memoizer using redis as a shared cache, with TTL.",
+  "main": "index.js",
+  "scripts": {
+    "test": "./node_modules/mocha/bin/mocha --reporter spec --watch --timeout 5000"
+  },
+  "repository": "",
+  "author": "",
+  "license": "BSD",
+  "dependencies": {
+    "redis": "~0.8.2"
+  },
+  "devDependencies": {
+    "mocha": "~1.8.1",
+    "should": "~1.2.1"
+  }
+}
