@@ -75,6 +75,13 @@ Once all the calls have been responded to and the result of the computation is s
 
 Note, cache stampedes can still happen if the same function is called from different processes, since this queueing logic described above happens in memory. You are likely to make as many calls as you have processes in a multi-process deployment.
 
+## Installation
+
+Use npm to install redis-memoizer:
+```
+npm install redis-memoizer
+```
+
 ## License
 
 (The MIT License)
