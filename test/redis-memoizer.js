@@ -120,4 +120,30 @@ describe('redis-memoizer', function() {
 			});
 		});
 	});
+
+	it('should work if complex types are accepted as args and returned', function(done) {
+		var fn = function(arg1, done) {
+			setTimeout(function() {
+				done(arg1, ["other", "data"]);
+			}, 500);
+		};
+
+		var memoized = memoize(fn);
+
+		var start = new Date;
+		memoized({some: "data"}, function(val1, val2) {
+			(new Date - start >= 500).should.be.true;
+			val1.should.eql({some: "data"});
+			val2.should.eql(["other", "data"]);
+
+			start = new Date;
+			memoized({some: "data"}, function(val1, val2) {
+				(new Date - start <= 100).should.be.true;
+				val1.should.eql({some: "data"});
+				val2.should.eql(["other", "data"]);
+
+				clearCache(fn, [{some: "data"}], done);
+			});
+		});
+	});
 });
