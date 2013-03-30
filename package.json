@@ -8,7 +8,7 @@
   },
   "repository": "",
   "author": "",
-  "license": "BSD",
+  "license": "MIT",
   "dependencies": {
     "redis": "~0.8.2"
   },
