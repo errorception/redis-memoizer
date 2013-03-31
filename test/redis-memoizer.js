@@ -121,6 +121,31 @@ describe('redis-memoizer', function() {
 		});
 	});
 
+	it('should allow ttl to be a function', function(done) {
+		var fn = function(done) { setTimeout(done, 200); },
+			memoized = memoize(fn, function() { return 1; });
+
+		var start = new Date;
+		memoized(function() {
+			(new Date - start >= 200).should.be.true;
+
+			// Call immediately again. Should be a cache hit
+			start = new Date;
+			memoized(function() {
+				(new Date - start <= 100).should.be.true;
+
+				// Wait some time, ttl should have expired
+				setTimeout(function() {
+					start = new Date;
+					memoized(function() {
+						(new Date - start >= 200).should.be.true;
+						clearCache(fn, [], done);
+					});
+				}, 2000);
+			});
+		});
+	});
+
 	it('should work if complex types are accepted as args and returned', function(done) {
 		var fn = function(arg1, done) {
 			setTimeout(function() {

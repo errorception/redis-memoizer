@@ -20,9 +20,14 @@ module.exports = function() {
 
 	return function memoize(fn, ttl) {
 		var functionKey = hash(fn.toString()),
-			inFlight = {};
+			inFlight = {},
+			ttlfn;
 
-		ttl = ttl || 120;
+		if(typeof ttl == 'function') {
+			ttlfn = ttl;
+		} else {
+			ttlfn = function() { return ttl || 120; }
+		}
 
 		return function memoizedFunction() {
 			var self = this,	// if 'this' is used in the function
@@ -43,7 +48,7 @@ module.exports = function() {
 					fn.apply(self, args.concat(function() {
 						var resultArgs = Array.prototype.slice.call(arguments);
 
-						writeKeyToRedis(functionKey, argsStringified, resultArgs, ttl);
+						writeKeyToRedis(functionKey, argsStringified, resultArgs, ttlfn.apply(null, resultArgs));
 
 						if(inFlight[argsStringified]) {
 							inFlight[argsStringified].forEach(function(cb) {
