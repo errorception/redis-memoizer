@@ -1,9 +1,9 @@
 redis-memoizer
 ===
 
-A asynchronous function memoizer for node.js, using redis as the memo store. Memos expire after a specified timeout. Great as a drop-in performance optimization / caching layer for heavy asynchronous functions.
+An asynchronous function memoizer for node.js, using redis as the memo store. Memos expire after a specified timeout. Great as a drop-in performance optimization / caching layer for heavy asynchronous functions.
 
-According to [Wikipedia](http://en.wikipedia.org/wiki/Memoization):
+Wikipedia [explains it best](http://en.wikipedia.org/wiki/Memoization):
 > ...memoization is an optimization technique used primarily to speed up computer programs by having function calls avoid repeating the calculation of results for previously processed inputs.
 
 ```javascript
@@ -19,11 +19,11 @@ var memoized = memoize(someExpensiveOperation);
 
 Now, calls to `memoized` will have the same effect as calling `someExpensiveOperation`, except it will be much faster. The results of the first call are stored in redis and then looked up for subsequent calls.
 
-Redis effectively serves as a shared network-available cache for function calls. Thus, the memoization cache is available across processes, and if the same function call is made from different processes they will reuse the cache.
+Redis effectively serves as a shared network-available cache for function calls. Thus, the memoization cache is available across processes, so that if the same function call is made from different processes they will reuse the cache.
 
 ## Uses
 
-Lets say you are making a DB call that's rather expensive. Let's say you've wrapped the call into a `getUserProfile` call that looks as follows:
+Lets say you are making a DB call that's rather expensive. Let's say you've wrapped the call into a `getUserProfile` function that looks as follows:
 
 ```javascript
 function getUserProfile(userId, done) {
@@ -73,7 +73,7 @@ This module makes some effort to minimize the effect of a [cache stampede](http:
 
 Once all the calls have been responded to and the result of the computation is stored in redis, the module then switches to using the computed values from redis.
 
-Note, cache stampedes can still happen if the same function is called from different processes, since this queueing logic described above happens in memory. You are likely to make as many calls as you have processes in a multi-process deployment.
+Note, cache stampedes can still happen if the same function is called from different processes, since the queueing logic described above happens in-memory. For the same set of arguments, you are likely to make as many calls as you have processes.
 
 ## Installation
 
@@ -81,6 +81,8 @@ Use npm to install redis-memoizer:
 ```
 npm install redis-memoizer
 ```
+
+To run the tests, install the dev-dependencies by `cd`'ing into `node_modules/redis-memoizer` and running `npm install` once, and then `npm test`.
 
 ## License
 
