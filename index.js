@@ -15,7 +15,11 @@ module.exports = function() {
 	}
 
 	function writeKeyToRedis(ns, key, value, ttl, done) {
-		client.setex('memos:' + ns + ':' + key, ttl, JSON.stringify(value), done);
+		if(ttl !== 0) {
+			client.setex('memos:' + ns + ':' + key, ttl, JSON.stringify(value), done);
+		} else {
+			process.nextTick(done);
+		}
 	}
 
 	return function memoize(fn, ttl) {
