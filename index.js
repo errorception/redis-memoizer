@@ -18,7 +18,7 @@ module.exports = function() {
 		if(ttl !== 0) {
 			client.setex('memos:' + ns + ':' + key, ttl, JSON.stringify(value), done);
 		} else {
-			process.nextTick(done);
+			process.nextTick(done || function() {});
 		}
 	}
 
