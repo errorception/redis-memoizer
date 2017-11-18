@@ -1,4 +1,4 @@
-redis-memoizer
+redis-memoizer [![Build Status](https://travis-ci.org/errorception/redis-memoizer.svg?branch=master)](https://travis-ci.org/errorception/redis-memoizer)
 ===
 
 An asynchronous function memoizer for node.js, using redis as the memo store. Memos expire after a specified timeout. Great as a drop-in performance optimization / caching layer for heavy asynchronous functions.
