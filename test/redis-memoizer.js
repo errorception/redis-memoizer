@@ -13,6 +13,8 @@ describe('redis-memoizer', function() {
 		redis.del('memos:' + hash(fn.toString()) + ':' + hash(stringified), done);
 	}
 
+	after(process.exit);
+
 	it('should memoize a value correctly', function(done) {
 		var functionToMemoize = function (val1, val2, done) {
 				setTimeout(function() { done(val1, val2); }, 500);
