@@ -1,176 +1,167 @@
-var memoize = require('../')(),
-	crypto = require('crypto'),
-	redis = require('redis').createClient(),
-	should = require('should');
+const client = require('redis').createClient();
+const memoize = require('../')(client);
+const crypto = require('crypto');
+const should = require('should');
+const { promisify } = require('util');
+const delay = require('delay2');
 
-describe('redis-memoizer', function() {
-	function hash(string) {
-		return crypto.createHmac('sha1', 'memo').update(string).digest('hex');
-	}
+const redisDel = promisify(client.del).bind(client);
 
-	function clearCache(fn, args, done) {
-		var stringified = args.map(function(arg) { return JSON.stringify(arg); }).join(",");
-		redis.del('memos:' + hash(fn.toString()) + ':' + hash(stringified), done);
-	}
+const hash = string => crypto.createHmac('sha1', 'memo').update(string).digest('hex');
 
-	after(process.exit);
+const clearCache = async (fnName, args = []) => {
+  await redisDel('memos:' + fnName + ':' + hash(JSON.stringify(args)));
+}
 
-	it('should memoize a value correctly', function(done) {
-		var functionToMemoize = function (val1, val2, done) {
-				setTimeout(function() { done(val1, val2); }, 500);
-			},
-			memoized = memoize(functionToMemoize);
+describe('redis-memoizer', () => {
+  after(process.exit);
 
-		var start1 = new Date();
-		memoized(1, 2, function(val1, val2) {
-			val1.should.equal(1);
-			val2.should.equal(2);
-			(new Date - start1 >= 500).should.be.true;		// First call should go to the function itself
+  it('should memoize a value correctly', async () => {
+    const functionDelayTime = 100;
+    let callCount = 0;
+    const functionToMemoize = async (val1, val2) => {
+      callCount++;
+      await delay(functionDelayTime);
+      return { val1, val2 };
+    };
+    const memoized = memoize(functionToMemoize, { name: 'testFn' });
 
-			var start2 = new Date();
-			memoized(1, 2, function(val1, val2) {
-				val1.should.equal(1);
-				val2.should.equal(2);
-				(new Date - start2 < 500).should.be.true;		// Second call should be faster
+    let start = Date.now();
+    let { val1, val2 } = await memoized(1, 2);
+    val1.should.equal(1);
+    val2.should.equal(2);
+    (Date.now() - start >= functionDelayTime).should.be.true;		// First call should go to the function itself
+    callCount.should.equal(1);
 
-				clearCache(functionToMemoize, [1, 2], done);
-			});
-		});
-	});
+    start = Date.now();
+    ({ val1, val2 } = await memoized(1, 2));
+    val1.should.equal(1);
+    val2.should.equal(2);
+    (Date.now() - start < functionDelayTime).should.be.true;		// Second call should be faster
+    callCount.should.equal(1);
 
-	it("should memoize separate function separately", function(done) {
-		var function1 = function(arg, done) { setTimeout(function() { done(1); }, 200); },
-			function2 = function(arg, done) { setTimeout(function() { done(2); }, 200); };
+    await clearCache('testFn', [1, 2]);
+  });
 
-		var memoizedFn1 = memoize(function1),
-			memoizedFn2 = memoize(function2);
+  it('should memoize separate function separately', async () => {
+    const function1 = async arg => { await delay(100); return 1; };
+    const function2 = async arg => { await delay(100); return 2; };
 
-		memoizedFn1("x", function(val) {
-			val.should.equal(1);
+    const memoizedFn1 = memoize(function1, { name: 'function1' });
+    const memoizedFn2 = memoize(function2, { name: 'function2' });
 
-			memoizedFn2("y", function(val) {
-				val.should.equal(2);
+    (await memoizedFn1('x')).should.equal(1);
+    (await memoizedFn2('y')).should.equal(2);
+    (await memoizedFn1('x')).should.equal(1);
 
-				memoizedFn1("x", function(val) {
-					val.should.equal(1);
+    await clearCache('function1', ['x']);
+    await clearCache('function2', ['y']);
+  });
 
-					clearCache(function1, ["x"]);
-					clearCache(function2, ["y"], done);
-				});
-			});
-		});
-	});
+  it('should prevent a cache stampede', async () => {
+    const functionDelayTime = 100;
+    const iterationCount = 10;
+    let callCount = 0;
+    
+    const fn = async () => {
+      callCount++;
+      await delay(functionDelayTime);
+    }
+    const memoized = memoize(fn, { name: 'testFn' });
 
-	it("should prevent a cache stampede", function(done) {
-		var fn = function(done) { setTimeout(done, 500); },
-			memoized = memoize(fn);
+    let start = Date.now();
+    await Promise.all([ ...Array(iterationCount).keys() ].map(() => memoized()));
+    (Date.now() - start < functionDelayTime * iterationCount).should.be.true;
+    callCount.should.equal(1);
 
-		var start = new Date;
+    await clearCache('testFn');
+  });
 
-		memoized(function() {
-			// First one. Should take 500ms
-			(new Date - start >= 500).should.be.true;
+  it(`should respect 'this'`, async () => {
+    function Obj() { this.x = 1; }
+    Obj.prototype.y = async function() {
+      await delay(100);
+      return this.x;
+    };
 
-			start = new Date;	// Set current time for next callback;
-		});
+    const obj = new Obj();
+    const memoizedY = memoize(obj.y, {name: 'Obj.y'}).bind(obj);
 
-		memoized(function() {
-			(new Date - start <= 10).should.be.true;
-			clearCache(fn, [], done);
-		});
-	});
+    (await memoizedY()).should.equal(1);
 
-	it('should respect \'this\'', function(done) {
-		function Obj() { this.x = 1; }
-		Obj.prototype.y = memoize(function(done) {
-			var self = this;
+    await clearCache('Obj.y');
+  });
 
-			setTimeout(function() {
-				done(self.x);
-			}, 300);
-		});
+  it('should respect the ttl', async () => {
+    const ttl = 500;
+    const functionDelayTime = 100;
 
-		var obj = new Obj;
+    const fn = async () => await delay(functionDelayTime);
+    const memoized = memoize(fn, { name: 'testFn', ttl });
 
-		obj.y(function(x) {
-			x.should.equal(1);
-			clearCache(obj.y, [], done);
-		});
-	});
+    let start = Date.now();
+    await memoized();
+    (Date.now() - start >= functionDelayTime).should.be.true;
 
-	it('should respect the ttl', function(done) {
-		var fn = function(done) { setTimeout(done, 200); },
-			memoized = memoize(fn, 1);
+    // Call immediately again. Should be a cache hit.
+    start = Date.now();
+    await memoized();
+    (Date.now() - start < functionDelayTime).should.be.true;
 
-		var start = new Date;
-		memoized(function() {
-			(new Date - start >= 200).should.be.true;
+    // Wait some time, ttl should have expired
+    await delay(ttl + 10);
+    start = Date.now();
+    await memoized();
+    (Date.now() - start >= functionDelayTime).should.be.true;
 
-			// Call immediately again. Should be a cache hit
-			start = new Date;
-			memoized(function() {
-				(new Date - start <= 100).should.be.true;
+    await clearCache('testFn');
+  });
 
-				// Wait some time, ttl should have expired
-				setTimeout(function() {
-					start = new Date;
-					memoized(function() {
-						(new Date - start >= 200).should.be.true;
-						clearCache(fn, [], done);
-					});
-				}, 2000);
-			});
-		});
-	});
+  it('should allow ttl to be a function', async () => {
+    const functionDelayTime = 100;
+    const fn = async () => await delay(functionDelayTime);
+    const memoized = memoize(fn, { ttl: () => 200, name: 'testFn' });
 
-	it('should allow ttl to be a function', function(done) {
-		var fn = function(done) { setTimeout(done, 200); },
-			memoized = memoize(fn, function() { return 1; });
+    let start = Date.now();
+    await memoized();
+    (Date.now() - start >= functionDelayTime).should.be.true;
 
-		var start = new Date;
-		memoized(function() {
-			(new Date - start >= 200).should.be.true;
+    // Call immediately again. Should be a cache hit
+    start = Date.now();
+    await memoized();
+    (Date.now() - start <= functionDelayTime).should.be.true;
 
-			// Call immediately again. Should be a cache hit
-			start = new Date;
-			memoized(function() {
-				(new Date - start <= 100).should.be.true;
+    // Wait some time, ttl should have expired;
+    await delay(300);
 
-				// Wait some time, ttl should have expired
-				setTimeout(function() {
-					start = new Date;
-					memoized(function() {
-						(new Date - start >= 200).should.be.true;
-						clearCache(fn, [], done);
-					});
-				}, 2000);
-			});
-		});
-	});
+    start = Date.now();
+    await memoized();
+    (Date.now() - start >= functionDelayTime).should.be.true;
 
-	it('should work if complex types are accepted as args and returned', function(done) {
-		var fn = function(arg1, done) {
-			setTimeout(function() {
-				done(arg1, ["other", "data"]);
-			}, 500);
-		};
+    await clearCache('testFn');
+  });
 
-		var memoized = memoize(fn);
+  it('should work if complex types are accepted and returned', async () => {
+    const functionDelayTime = 100;
+    const fn = async arg1 => {
+      await delay(functionDelayTime);
+      return { arg1, some: ['other', 'data'] }
+    };
 
-		var start = new Date;
-		memoized({some: "data"}, function(val1, val2) {
-			(new Date - start >= 500).should.be.true;
-			val1.should.eql({some: "data"});
-			val2.should.eql(["other", "data"]);
+    const memoized = memoize(fn, { name: 'testFn' });
 
-			start = new Date;
-			memoized({some: "data"}, function(val1, val2) {
-				(new Date - start <= 100).should.be.true;
-				val1.should.eql({some: "data"});
-				val2.should.eql(["other", "data"]);
+    let start = Date.now();
+    let { arg1, some } = await memoized({ input: 'data' });
+    (Date.now() - start >= functionDelayTime).should.be.true;
+    arg1.should.eql({ input: 'data' });
+    some.should.eql(['other', 'data']);
+    
+    start = Date.now();
+    ({ arg1, some } = await memoized({ input: 'data' }));
+    (Date.now() - start <= functionDelayTime).should.be.true;
+    arg1.should.eql({ input: 'data' });
+    some.should.eql(['other', 'data']);
 
-				clearCache(fn, [{some: "data"}], done);
-			});
-		});
-	});
+    await clearCache(fn, [{input: "data"}]);
+  });
 });

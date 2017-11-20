@@ -9,10 +9,10 @@
   "repository": "",
   "author": "",
   "license": "MIT",
-  "dependencies": {
-    "redis": "^2.8.0"
-  },
+  "dependencies": {},
   "devDependencies": {
+    "redis": "^2.8.0",
+    "delay2": "^1.0.2",
     "mocha": "^4.0.1",
     "should": "^13.1.3"
   }

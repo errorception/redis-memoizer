@@ -1,68 +1,64 @@
-var redis = require('redis'),
-	crypto = require('crypto');
+const crypto = require('crypto');
+const { promisify } = require('util');
 
-module.exports = function() {
-	var client = redis.createClient.apply(null, arguments);
+const hash = string => crypto.createHmac('sha1', 'memo').update(string).digest('hex');
 
-	function hash(string) {
-		return crypto.createHmac('sha1', 'memo').update(string).digest('hex');
-	}
+const openedPromise = () => {
+  const opened = {};
+  opened.promise = new Promise((resolve, reject) => {
+    opened.resolve = resolve;
+    opened.reject = reject;
+  });
 
-	function getKeyFromRedis(ns, key, done) {
-		client.get('memos:' + ns + ':' + key, function(err, value) {
-			done(err, JSON.parse(value));
-		});
-	}
-
-	function writeKeyToRedis(ns, key, value, ttl, done) {
-		if(ttl !== 0) {
-			client.setex('memos:' + ns + ':' + key, ttl, JSON.stringify(value), done);
-		} else {
-			process.nextTick(done || function() {});
-		}
-	}
-
-	return function memoize(fn, ttl) {
-		var functionKey = hash(fn.toString()),
-			inFlight = {},
-			ttlfn;
-
-		if(typeof ttl == 'function') {
-			ttlfn = ttl;
-		} else {
-			ttlfn = function() { return ttl || 120; }
-		}
-
-		return function memoizedFunction() {
-			var self = this,	// if 'this' is used in the function
-				args = Array.prototype.slice.call(arguments),
-				done = args.pop(),
-				argsStringified = args.map(function(arg) { return JSON.stringify(arg); }).join(",");
-
-			argsStringified = hash(argsStringified);
-
-			getKeyFromRedis(functionKey, argsStringified, function(err, value) {
-				if(value) {
-					done.apply(self, value);
-				} else if(inFlight[argsStringified]) {
-					inFlight[argsStringified].push(done);
-				} else {
-					inFlight[argsStringified] = [done];
-
-					fn.apply(self, args.concat(function() {
-						var resultArgs = Array.prototype.slice.call(arguments);
-
-						writeKeyToRedis(functionKey, argsStringified, resultArgs, ttlfn.apply(null, resultArgs));
-
-						if(inFlight[argsStringified]) {
-							inFlight[argsStringified].forEach(function(cb) {
-								cb.apply(self, resultArgs);
-							});
-							delete inFlight[argsStringified];
-						}
-					}));
-				}
-			});
-		}
-	}
+  return opened;
 }
+
+module.exports = client => {
+  const redisGet = promisify(client.get).bind(client);
+  const redisPsetex = promisify(client.psetex).bind(client);
+
+  const getKeyFromRedis = async (ns, key) => {
+    return JSON.parse(await redisGet(`memos:${ns}:${key}`));
+  }
+
+  const writeKeyToRedis = async (ns, key, value, ttl) => {
+    if(ttl === 0) return;
+    return redisPsetex(`memos:${ns}:${key}`, ttl, JSON.stringify(value));
+  }
+
+  return function memoize(fn, { ttl = 120000, name } = {}) {
+    if(!name) throw new Error('You must provide a options.name for the function to memoize.');
+
+    const inFlight = {};
+    const ttlfn = typeof ttl === 'function' ? ttl : () => ttl;
+    
+    const memoizedFunction = async function(...args) {
+      const argsStringified = hash(JSON.stringify(args));
+
+      const redisCacheValue = await getKeyFromRedis(name, argsStringified);
+      if(redisCacheValue) return redisCacheValue;
+
+      const p = openedPromise();
+
+      if(inFlight[argsStringified]) {
+        inFlight[argsStringified].push(p);
+        return p.promise;
+      }
+      
+      inFlight[argsStringified] = [p];
+      
+      fn.apply(this, args).then(result => {
+        writeKeyToRedis(name, argsStringified, result || null, ttlfn(result));
+        (inFlight[argsStringified] || []).forEach(p => p.resolve(result));
+        delete inFlight[argsStringified];
+      }).catch(e => {
+        (inFlight[argsStringified] || []).forEach(p => p.reject(e));
+        delete inFlight[argsStringified];
+      });
+
+      return p.promise;
+    }
+
+    return memoizedFunction;
+  }
+};
