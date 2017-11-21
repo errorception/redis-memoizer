@@ -1,63 +1,79 @@
 const crypto = require('crypto');
+const redisLock = require('redis-lock');
 const { promisify } = require('util');
 
-const hash = string => crypto.createHmac('sha1', 'memo').update(string).digest('hex');
+const sha1 = str => crypto.createHmac('sha1', 'memo').update(str).digest('hex');
 
-const openedPromise = () => {
-  const opened = {};
-  opened.promise = new Promise((resolve, reject) => {
-    opened.resolve = resolve;
-    opened.reject = reject;
-  });
-
-  return opened;
-}
+const undefinedMarker = '__redis_memoizer_undefined';
+const nullMarker = '__redis_memoizer_null';
+const internalNotFoundInRedis = '__redis_memoizer_not_found';
+const defaultTtl = 120000;
 
 module.exports = client => {
   const redisGet = promisify(client.get).bind(client);
   const redisPsetex = promisify(client.psetex).bind(client);
+  const lock = promisify(redisLock(client));
 
-  const getKeyFromRedis = async (ns, key) => {
-    return JSON.parse(await redisGet(`memos:${ns}:${key}`));
+  const getResultFromRedis = async (ns, key) => {
+    const valueFromRedis = await redisGet(`memos:${ns}:${key}`)
+
+    if(valueFromRedis === null) return internalNotFoundInRedis;
+    if(valueFromRedis === undefinedMarker) return undefined;
+    if(valueFromRedis === nullMarker) return null;
+    return JSON.parse(valueFromRedis);
   }
 
-  const writeKeyToRedis = async (ns, key, value, ttl) => {
+  const writeResultToRedis = async (ns, key, value, ttl) => {
     if(ttl === 0) return;
-    return redisPsetex(`memos:${ns}:${key}`, ttl, JSON.stringify(value));
+
+    let serializedValue;
+    if(typeof value === 'undefined') {
+      serializedValue = undefinedMarker;
+    } else if(value === null) {
+      serializedValue = nullMarker;
+    } else {
+      serializedValue = JSON.stringify(value);
+    }
+
+    return redisPsetex(`memos:${ns}:${key}`, ttl, serializedValue);
   }
 
-  return function memoize(fn, { ttl = 120000, name } = {}) {
+  return function memoize(fn, { ttl = defaultTtl, lockTimeout = 5000, name } = {}) {
     if(!name) throw new Error('You must provide a options.name for the function to memoize.');
 
-    const inFlight = {};
     const ttlfn = typeof ttl === 'function' ? ttl : () => ttl;
     
     const memoizedFunction = async function(...args) {
-      const argsStringified = hash(JSON.stringify(args));
+      const argsStringified = sha1(JSON.stringify(args));
 
-      const redisCacheValue = await getKeyFromRedis(name, argsStringified);
-      if(redisCacheValue) return redisCacheValue;
+      // Return directly without locks if possible
+      const redisCacheValue = await getResultFromRedis(name, argsStringified);
+      if(redisCacheValue !== internalNotFoundInRedis) return redisCacheValue;
 
-      const p = openedPromise();
+      // Lock ensures only one fn executes at a time.
+      const unlock = await lock(sha1(`${name}:${argsStringified}`), lockTimeout);
+      try {
+        // Return from redis, if cache has been populated now
+        const redisCacheRetry = await getResultFromRedis(name, argsStringified);
+        if(redisCacheRetry !== internalNotFoundInRedis) return redisCacheRetry;
 
-      if(inFlight[argsStringified]) {
-        inFlight[argsStringified].push(p);
-        return p.promise;
+        const result = await fn.apply(this, args);
+        const ttl = ttlfn(result);
+
+        await writeResultToRedis(
+          name,
+          argsStringified,
+          result,
+          typeof ttl === 'number' ? ttl : deafultTtl
+        );
+
+        return result;
+      } catch(e) {
+        throw e;
+      } finally {
+        unlock();
       }
-      
-      inFlight[argsStringified] = [p];
-      
-      fn.apply(this, args).then(result => {
-        writeKeyToRedis(name, argsStringified, result || null, ttlfn(result));
-        (inFlight[argsStringified] || []).forEach(p => p.resolve(result));
-        delete inFlight[argsStringified];
-      }).catch(e => {
-        (inFlight[argsStringified] || []).forEach(p => p.reject(e));
-        delete inFlight[argsStringified];
-      });
-
-      return p.promise;
-    }
+    };
 
     return memoizedFunction;
   }

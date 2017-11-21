@@ -9,7 +9,9 @@
   "repository": "",
   "author": "",
   "license": "MIT",
-  "dependencies": {},
+  "dependencies": {
+    "redis-lock": "^0.1.4"
+  },
   "devDependencies": {
     "redis": "^2.8.0",
     "delay2": "^1.0.2",

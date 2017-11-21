@@ -17,7 +17,7 @@ describe('redis-memoizer', () => {
   after(process.exit);
 
   it('should memoize a value correctly', async () => {
-    const functionDelayTime = 100;
+    const functionDelayTime = 10;
     let callCount = 0;
     const functionToMemoize = async (val1, val2) => {
       callCount++;
@@ -44,8 +44,8 @@ describe('redis-memoizer', () => {
   });
 
   it('should memoize separate function separately', async () => {
-    const function1 = async arg => { await delay(100); return 1; };
-    const function2 = async arg => { await delay(100); return 2; };
+    const function1 = async arg => { await delay(10); return 1; };
+    const function2 = async arg => { await delay(10); return 2; };
 
     const memoizedFn1 = memoize(function1, { name: 'function1' });
     const memoizedFn2 = memoize(function2, { name: 'function2' });
@@ -59,14 +59,15 @@ describe('redis-memoizer', () => {
   });
 
   it('should prevent a cache stampede', async () => {
-    const functionDelayTime = 100;
+    try {
+    const functionDelayTime = 10;
     const iterationCount = 10;
     let callCount = 0;
-    
+
     const fn = async () => {
       callCount++;
       await delay(functionDelayTime);
-    }
+    };
     const memoized = memoize(fn, { name: 'testFn' });
 
     let start = Date.now();
@@ -75,12 +76,13 @@ describe('redis-memoizer', () => {
     callCount.should.equal(1);
 
     await clearCache('testFn');
+  } catch(e) { console.log(e); }
   });
 
   it(`should respect 'this'`, async () => {
     function Obj() { this.x = 1; }
     Obj.prototype.y = async function() {
-      await delay(100);
+      await delay(10);
       return this.x;
     };
 
@@ -93,8 +95,8 @@ describe('redis-memoizer', () => {
   });
 
   it('should respect the ttl', async () => {
-    const ttl = 500;
-    const functionDelayTime = 100;
+    const ttl = 100;
+    const functionDelayTime = 10;
 
     const fn = async () => await delay(functionDelayTime);
     const memoized = memoize(fn, { name: 'testFn', ttl });
@@ -118,9 +120,10 @@ describe('redis-memoizer', () => {
   });
 
   it('should allow ttl to be a function', async () => {
-    const functionDelayTime = 100;
+    const functionDelayTime = 10;
+    const ttl = 100;
     const fn = async () => await delay(functionDelayTime);
-    const memoized = memoize(fn, { ttl: () => 200, name: 'testFn' });
+    const memoized = memoize(fn, { ttl: () => ttl, name: 'testFn' });
 
     let start = Date.now();
     await memoized();
@@ -132,7 +135,7 @@ describe('redis-memoizer', () => {
     (Date.now() - start <= functionDelayTime).should.be.true;
 
     // Wait some time, ttl should have expired;
-    await delay(300);
+    await delay(ttl + 10);
 
     start = Date.now();
     await memoized();
@@ -142,7 +145,7 @@ describe('redis-memoizer', () => {
   });
 
   it('should work if complex types are accepted and returned', async () => {
-    const functionDelayTime = 100;
+    const functionDelayTime = 10;
     const fn = async arg1 => {
       await delay(functionDelayTime);
       return { arg1, some: ['other', 'data'] }
@@ -163,5 +166,45 @@ describe('redis-memoizer', () => {
     some.should.eql(['other', 'data']);
 
     await clearCache(fn, [{input: "data"}]);
+  });
+
+  it('should memoize even if result is falsy', async () => {
+    await Promise.all([undefined, null, false, ''].map(async falsyValue => {
+      let callCount = 0;
+      const fn = async () => {
+        callCount++;
+        return falsyValue;
+      }
+
+      const memoized = memoize(fn, { name: 'testFn' });
+
+      (await memoized() === falsyValue).should.be.true;
+      (await memoized() === falsyValue).should.be.true;  // Repeated, presumably cache-hit
+      callCount.should.equal(1);  // Verify cache hit
+
+      await clearCache('testFn');
+    }));
+  });
+
+  it(`shouldn't memoize errors`, async () => {
+    let callCount = 0;
+    const fn = async () => {
+      callCount++;
+      throw new Error('Test error');
+    }
+
+    const memoized = memoize(fn, { name: 'testFn' });
+
+    try {
+      await memoized();
+    } catch(e) {
+      callCount.should.equal(1);
+    }
+
+    try {
+      await memoized();
+    } catch(e) {
+      callCount.should.equal(2);
+    }
   });
 });
