@@ -1,12 +1,14 @@
 {
   "name": "redis-memoizer",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "A memoizer using redis as a shared cache, with TTL.",
   "main": "index.js",
   "scripts": {
     "test": "./node_modules/mocha/bin/mocha --reporter spec --timeout 5000"
   },
-  "engines": { "node": ">=8.0" },
+  "engines": {
+    "node": ">=8.0"
+  },
   "repository": "",
   "author": "",
   "license": "MIT",
