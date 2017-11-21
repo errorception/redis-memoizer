@@ -64,7 +64,7 @@ module.exports = client => {
           name,
           argsStringified,
           result,
-          typeof ttl === 'number' ? ttl : deafultTtl
+          typeof ttl === 'number' ? ttl : defaultTtl
         );
 
         return result;
