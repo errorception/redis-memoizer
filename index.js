@@ -1,6 +1,7 @@
 const crypto = require('crypto');
 const redisLock = require('redis-lock');
 const { promisify } = require('util');
+const CircularJSON = require('circular-json');
 
 const sha1 = str => crypto.createHmac('sha1', 'memo').update(str).digest('hex');
 
@@ -32,7 +33,7 @@ module.exports = client => {
     } else if(value === null) {
       serializedValue = nullMarker;
     } else {
-      serializedValue = JSON.stringify(value);
+      serializedValue = CircularJSON.stringify(value);
     }
 
     return redisPsetex(`memos:${ns}:${key}`, ttl, serializedValue);
